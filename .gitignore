@@ -3,6 +3,10 @@
 *.so
 *.gguf
 *.bin
+*.rkllm
+models/
+convert/output/
+convert/*.whl
 *.exe
 *.dll
 *.log

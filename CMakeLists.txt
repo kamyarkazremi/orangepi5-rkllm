@@ -91,6 +91,8 @@ set(LLAMA_CUDA_PEER_MAX_BATCH_SIZE "128" CACHE STRING
                                              "llama: max. batch size for using peer access")
 option(LLAMA_HIPBLAS                         "llama: use hipBLAS"                               OFF)
 option(LLAMA_CLBLAST                         "llama: use CLBlast"                               OFF)
+option(LLAMA_RKLLM                           "llama: use RKLLM (RK3588 NPU, Orange Pi 5)"       OFF)
+set(RKLLM_ROOT "" CACHE PATH "Path to the RKLLM runtime SDK (rknn-llm/rkllm-runtime)")
 option(LLAMA_METAL                           "llama: use Metal"                                 ${LLAMA_METAL_DEFAULT})
 option(LLAMA_METAL_NDEBUG                    "llama: disable Metal debugging"                   OFF)
 option(LLAMA_MPI                             "llama: use MPI"                                   OFF)
@@ -343,6 +345,39 @@ if (LLAMA_CLBLAST)
         set(LLAMA_EXTRA_LIBS ${LLAMA_EXTRA_LIBS} clblast)
     else()
         message(WARNING "CLBlast not found")
+    endif()
+endif()
+
+if (LLAMA_RKLLM)
+    # Locate the RKLLM runtime SDK.
+    # Download from: https://github.com/airockchip/rknn-llm (rkllm-runtime directory)
+    if (RKLLM_ROOT)
+        set(RKLLM_INCLUDE_DIRS "${RKLLM_ROOT}/include")
+        set(RKLLM_LIB_DIR     "${RKLLM_ROOT}/lib/aarch64-linux-gnu")
+        find_library(RKLLM_LIB rkllmrt
+            PATHS "${RKLLM_LIB_DIR}"
+            NO_DEFAULT_PATH
+        )
+    else()
+        # Fall back to system paths (useful when SDK is installed system-wide)
+        find_path(RKLLM_INCLUDE_DIRS rkllm.h)
+        find_library(RKLLM_LIB rkllmrt)
+        set(RKLLM_LIB_DIR "")
+    endif()
+
+    if (RKLLM_LIB AND RKLLM_INCLUDE_DIRS)
+        message(STATUS "RKLLM runtime found: ${RKLLM_LIB}")
+
+        set(GGML_HEADERS_RKLLM ggml-rkllm.h)
+        set(GGML_SOURCES_RKLLM ggml-rkllm.c)
+
+        add_compile_definitions(GGML_USE_RKLLM)
+
+        set(RKLLM_LIBRARIES     ${RKLLM_LIB})
+        set(LLAMA_EXTRA_LIBS    ${LLAMA_EXTRA_LIBS} ${RKLLM_LIB})
+        set(LLAMA_EXTRA_INCLUDES ${LLAMA_EXTRA_INCLUDES} ${RKLLM_INCLUDE_DIRS})
+    else()
+        message(WARNING "RKLLM runtime not found. Set RKLLM_ROOT to the rknn-llm/rkllm-runtime directory.")
     endif()
 endif()
 
@@ -658,6 +693,15 @@ add_library(ggml OBJECT
             ${GGML_SOURCES_EXTRA} ${GGML_HEADERS_EXTRA}
             )
 
+# RKLLM backend – built as a separate static library so examples/rkllm can
+# link it without dragging in the full ggml object library.
+if (LLAMA_RKLLM AND GGML_SOURCES_RKLLM)
+    add_library(ggml-rkllm STATIC ${GGML_SOURCES_RKLLM} ${GGML_HEADERS_RKLLM})
+    target_include_directories(ggml-rkllm PUBLIC . ${RKLLM_INCLUDE_DIRS})
+    target_compile_definitions(ggml-rkllm PUBLIC GGML_USE_RKLLM)
+    target_link_libraries(ggml-rkllm PUBLIC ${RKLLM_LIBRARIES} Threads::Threads)
+endif()
+
 target_include_directories(ggml PUBLIC . ${LLAMA_EXTRA_INCLUDES})
 target_compile_features(ggml PUBLIC c_std_11) # don't bump
 target_link_libraries(ggml PUBLIC Threads::Threads ${LLAMA_EXTRA_LIBS})
@@ -788,4 +832,10 @@ endif ()
 if (LLAMA_BUILD_EXAMPLES)
     add_subdirectory(examples)
     add_subdirectory(pocs)
+endif()
+
+# RKLLM inference binary for Orange Pi 5 / RK3588 NPU
+# Built independently of LLAMA_BUILD_EXAMPLES so it can be enabled on its own.
+if (LLAMA_RKLLM)
+    add_subdirectory(examples/rkllm)
 endif()
