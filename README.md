@@ -1,320 +1,241 @@
-# PowerInfer: Fast Large Language Model Serving with a Consumer-grade GPU
+# Orange Pi 5 × RKLLM — Qwen3-4B Deployment Stack
 
-## TL;DR
-PowerInfer is a CPU/GPU LLM inference engine leveraging **activation locality** for your device.
-
-<a href="https://trendshift.io/repositories/6186" target="_blank"><img src="https://trendshift.io/api/badge/repositories/6186" alt="SJTU-IPADS%2FPowerInfer | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+Deploy **Qwen3-4B** with full hardware acceleration on **Orange Pi 5** (Rockchip RK3588):
+sliding-window KV cache, CPU+NPU hybrid inference, chain-of-thought, and Ollama-compatible HTTP API.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-[Project Kanban](https://github.com/orgs/SJTU-IPADS/projects/2/views/2)
-
-## Latest News 🔥
-- [2026/1/5] We released **[Tiiny AI Pocket Lab](https://tiiny.ai/)**, the world's first pocket-size supercomputer. It runs GPT-OSS-120B (int4) locally at **20 tokens/s**. Featured at CES 2026.
-- [2025/7/27] We released [SmallThinker-21BA3B-Instruct](https://huggingface.co/PowerInfer/SmallThinker-21BA3B-Instruct) and [SmallThinker-4BA0.6B-Instruct](https://huggingface.co/PowerInfer/SmallThinker-4BA0.6B-Instruct). We also released a corresponding framework for efficient [on-device inference](./smallthinker/README.md). 
-- [2024/6/11] We are thrilled to introduce [PowerInfer-2](https://arxiv.org/abs/2406.06282), our highly optimized inference framework designed specifically for smartphones. With TurboSparse-Mixtral-47B, it achieves an impressive speed of 11.68 tokens per second, which is up to 22 times faster than other state-of-the-art frameworks.
-- [2024/6/11] We are thrilled to present [Turbo Sparse](https://arxiv.org/abs/2406.05955), our TurboSparse models for fast inference. With just $0.1M, we sparsified the original Mistral and Mixtral model to nearly 90% sparsity while maintaining superior performance! For a Mixtral-level model, our TurboSparse-Mixtral activates only **4B** parameters!
-- [2024/5/20] **Competition Recruitment: CCF-TCArch Customized Computing Challenge 2024**. The CCF TCARCH CCC is a national competition organized by the Technical Committee on Computer Architecture (TCARCH) of the China Computer Federation (CCF). This year's competition aims to optimize the PowerInfer inference engine using the open-source ROCm/HIP. More information about the competition can be found [here](https://ccf-tcarch-ccc.github.io/2024/).
-- [2024/5/17] We now provide support for AMD devices with ROCm.
-- [2024/3/28] We are trilled to present [Bamboo LLM](https://github.com/SJTU-IPADS/Bamboo) that achieves both top-level performance and unparalleled speed with PowerInfer! Experience it with Bamboo-7B [Base](https://huggingface.co/PowerInfer/Bamboo-base-v0.1-gguf) / [DPO](https://huggingface.co/PowerInfer/Bamboo-DPO-v0.1-gguf).
-- [2024/3/14] We supported ProSparse Llama 2 ([7B](https://huggingface.co/SparseLLM/prosparse-llama-2-7b)/[13B](https://huggingface.co/SparseLLM/prosparse-llama-2-13b)), ReLU models with ~90% sparsity, matching original Llama 2's performance (Thanks THUNLP & ModelBest)!
-- [2024/1/11] We supported Windows with GPU inference!
-- [2023/12/24] We released an online [gradio demo](https://powerinfer-gradio.vercel.app/) for Falcon(ReLU)-40B-FP16!
-- [2023/12/19] We officially released PowerInfer!
-
-## Demo 🔥
-
-https://github.com/SJTU-IPADS/PowerInfer/assets/34213478/fe441a42-5fce-448b-a3e5-ea4abb43ba23
-
-PowerInfer v.s. llama.cpp on a single RTX 4090(24G) running Falcon(ReLU)-40B-FP16 with a 11x speedup!
-
-<sub>Both PowerInfer and llama.cpp were running on the same hardware and fully utilized VRAM on RTX 4090.</sub>
-
-> [!NOTE]
-> **Live Demo Online⚡️**
->
-> Try out our [Gradio server](https://powerinfer-gradio.vercel.app/) hosting Falcon(ReLU)-40B-FP16 on a RTX 4090!
->
-> <sub>Experimental and without warranties 🚧</sub>
-
-## Abstract
-
-We introduce PowerInfer, a high-speed Large Language Model (LLM) inference engine on a personal computer (PC)
-equipped with a single consumer-grade GPU. The key underlying the design of PowerInfer is exploiting the high **locality**
-inherent in LLM inference, characterized by a power-law distribution in neuron activation.
-
-This distribution indicates that a small subset of neurons, termed hot neurons, are consistently activated
-across inputs, while the majority, cold neurons, vary based on specific inputs.
-PowerInfer exploits such an insight to design a GPU-CPU hybrid inference engine:
-hot-activated neurons are preloaded onto the GPU for fast access, while cold-activated neurons are computed
-on the CPU, thus significantly reducing GPU memory demands and CPU-GPU data transfers.
-PowerInfer further integrates adaptive predictors and neuron-aware sparse operators,
-optimizing the efficiency of neuron activation and computational sparsity.
-
-Evaluation shows that PowerInfer attains an average token generation rate of 13.20 tokens/s, with a peak of 29.08 tokens/s, across various LLMs (including OPT-175B) on a single NVIDIA RTX 4090 GPU,
-only 18\% lower than that achieved by a top-tier server-grade A100 GPU.
-This significantly outperforms llama.cpp by up to 11.69x while retaining model accuracy.
+---
 
 ## Features
-PowerInfer is a high-speed and easy-to-use inference engine for deploying LLMs locally.
 
-PowerInfer is fast with:
+| Feature | How | Status |
+|---------|-----|--------|
+| **Constant RAM** | `n_keep=4` sliding-window KV cache (attention sinks) | ✅ |
+| **CPU+NPU hybrid** | `hybrid_rate=0.5` splits layers between A76 big cores and RKNPU2 | ✅ |
+| **Chain-of-thought** | Qwen3-4B thinking mode (`<think>…</think>`) parsed and streamed | ✅ |
+| **NVMe embedding cache** | `embed_flash=1` offloads embedding table to NVMe | ✅ |
+| **Big-core pinning** | `enabled_cpus_mask=0xF0` locks threads to A76 CPU4-7 (2.4 GHz) | ✅ |
+| **Zombie recovery** | Auto-restarts `rkllm_enhanced` on crash without restarting the API service | ✅ |
+| **Ollama-compatible API** | Drop-in HTTP API on port 8080/11434 | ✅ |
 
-- **Locality-centric design**: Utilizes sparse activation and 'hot'/'cold' neuron concept for efficient LLM inference, ensuring high speed with lower resource demands.
-- **Hybrid CPU/GPU Utilization**: Seamlessly integrates memory/computation capabilities of CPU and GPU for a balanced workload and faster processing.
+---
 
-PowerInfer is flexible and easy to use with:
+## Hardware
 
-- **Easy Integration**: Compatible with popular [ReLU-sparse models](https://huggingface.co/SparseLLM).
-- **Local Deployment Ease**: Designed and deeply optimized for local deployment on consumer-grade hardware, enabling low-latency LLM inference and serving on a single GPU.
-- **Backward Compatibility**: While distinct from llama.cpp, you can make use of most of `examples/` the same way as llama.cpp such as server and batched generation. PowerInfer also supports inference with llama.cpp's model weights for compatibility purposes, but there will be no performance gain.
+Tested on **Orange Pi 5** with Rockchip **RK3588** SoC:
 
-You can use these models with PowerInfer today:
+| Component | Spec |
+|-----------|------|
+| CPU | 4× Cortex-A55 (1.8 GHz) + 4× Cortex-A76 (2.4 GHz) |
+| NPU | RKNPU2 — 6 TOPS, 3 cores |
+| RAM | 16 GB LPDDR5 |
+| Storage | NVMe M.2 via HAT |
+| OS | Ubuntu 22.04 arm64 |
 
-- Falcon-40B
-- Llama2 family
-- ProSparse Llama2 family
-- Bamboo-7B
+---
 
-We have tested PowerInfer on the following platforms:
+## Quick Start
 
-- x86-64 CPUs with AVX2 instructions, with or without NVIDIA GPUs, under **Linux**.
-- x86-64 CPUs with AVX2 instructions, with or without NVIDIA GPUs, under **Windows**.
-- Apple M Chips (CPU only) on **macOS**. (As we do not optimize for Mac, the performance improvement is not significant now.)
-
-And new features coming soon:
-
-- Metal backend for sparse inference on macOS
-
-Please kindly refer to our [Project Kanban](https://github.com/orgs/SJTU-IPADS/projects/2/views/2) for our current focus of development.
-
-## Getting Started
-
-- [Installation](#setup-and-installation)
-- [Model Weights](#model-weights)
-- [Inference](#inference)
-
-## Setup and Installation
-
-### Pre-requisites
-
-PowerInfer requires the following dependencies:
-
-- CMake (3.17+)
-- Python (3.8+) and pip (19.3+), for converting model weights and automatic FFN offloading
-
-### Get the Code
+### 1. Clone and get the models
 
 ```bash
-git clone https://github.com/Tiiny-AI/PowerInfer
-cd PowerInfer
-pip install -r requirements.txt # install Python helpers' dependencies
-```
-### Build
-
-In order to build PowerInfer you have two different options. These commands are supposed to be run from the root directory of the project.
-
-Using `CMake`(3.17+):
-* If you have an NVIDIA GPU:
-```bash
-cmake -S . -B build -DLLAMA_CUBLAS=ON
-cmake --build build --config Release
-```
-* If you have an AMD GPU:
-```bash
-# Replace '1100' to your card architecture name, you can get it by rocminfo
-CC=/opt/rocm/llvm/bin/clang CXX=/opt/rocm/llvm/bin/clang++ cmake -S . -B build -DLLAMA_HIPBLAS=ON -DAMDGPU_TARGETS=gfx1100
-cmake --build build --config Release
+git clone https://github.com/kamyarkazremi/orangepi5-rkllm
+cd orangepi5-rkllm
 ```
 
-* If you have just CPU:
+Download the pre-built W8A8 RKLLM models from HuggingFace and place them on your NVMe drive:
 
 ```bash
-cmake -S . -B build
-cmake --build build --config Release
+# On Orange Pi 5:
+pip install huggingface-hub
+huggingface-cli download kamyarkazremi/Qwen3-4B-W8A8-RK3588 \
+    --local-dir /srv/nvme-share/models/
 ```
 
-## Model Weights
+Or download individual files:
+- `Qwen3-4B-w8a8-hybrid.rkllm` — **recommended** (CPU+NPU, 4.54 GB)
+- `Qwen3-4B-w8a8-npu.rkllm` — all-NPU fastest (4.51 GB)
 
-PowerInfer models are stored in a special format called *PowerInfer GGUF* based on GGUF format, consisting of both LLM weights and predictor weights.
-
-### Download PowerInfer GGUF via Hugging Face
-
-You can obtain PowerInfer GGUF weights at `*.powerinfer.gguf` as well as profiled model activation statistics for 'hot'-neuron offloading from each Hugging Face repo below.
-
-| Base Model            | PowerInfer GGUF                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- |
-| LLaMA(ReLU)-2-7B      | [PowerInfer/ReluLLaMA-7B-PowerInfer-GGUF](https://huggingface.co/PowerInfer/ReluLLaMA-7B-PowerInfer-GGUF)     |
-| LLaMA(ReLU)-2-13B     | [PowerInfer/ReluLLaMA-13B-PowerInfer-GGUF](https://huggingface.co/PowerInfer/ReluLLaMA-13B-PowerInfer-GGUF)   |
-| Falcon(ReLU)-40B      | [PowerInfer/ReluFalcon-40B-PowerInfer-GGUF](https://huggingface.co/PowerInfer/ReluFalcon-40B-PowerInfer-GGUF) |
-| LLaMA(ReLU)-2-70B     | [PowerInfer/ReluLLaMA-70B-PowerInfer-GGUF](https://huggingface.co/PowerInfer/ReluLLaMA-70B-PowerInfer-GGUF)   |
-| ProSparse-LLaMA-2-7B  | [PowerInfer/ProSparse-LLaMA-2-7B-GGUF](https://huggingface.co/PowerInfer/prosparse-llama-2-7b-gguf)           |
-| ProSparse-LLaMA-2-13B | [PowerInfer/ProSparse-LLaMA-2-13B-GGUF](https://huggingface.co/PowerInfer/prosparse-llama-2-13b-gguf)         |
-| Bamboo-base-7B 🌟      | [PowerInfer/Bamboo-base-v0.1-gguf](https://huggingface.co/PowerInfer/Bamboo-base-v0.1-gguf)                   |
-| Bamboo-DPO-7B 🌟       | [PowerInfer/Bamboo-DPO-v0.1-gguf](https://huggingface.co/PowerInfer/Bamboo-DPO-v0.1-gguf)                     |
-
-We recommend using [`huggingface-cli`](https://huggingface.co/docs/huggingface_hub/guides/cli) to download the whole model repo. For example, the following command will download [PowerInfer/ReluLLaMA-7B-PowerInfer-GGUF](https://huggingface.co/PowerInfer/ReluLLaMA-7B-PowerInfer-GGUF) into the `./ReluLLaMA-7B` directory.
-
-```shell
-huggingface-cli download --resume-download --local-dir ReluLLaMA-7B --local-dir-use-symlinks False PowerInfer/ReluLLaMA-7B-PowerInfer-GGUF
-```
-
-As such, PowerInfer can automatically make use of the following directory structure for feature-complete model offloading:
-```
-.
-├── *.powerinfer.gguf (Unquantized PowerInfer model)
-├── *.q4.powerinfer.gguf (INT4 quantized PowerInfer model, if available)
-├── activation (Profiled activation statistics for fine-grained FFN offloading)
-│   ├── activation_x.pt (Profiled activation statistics for layer x)
-│   └── ...
-├── *.[q4].powerinfer.gguf.generated.gpuidx (Generated GPU index at runtime for corresponding model)
-```
-
-### Convert from Original Model Weights + Predictor Weights
-
-Hugging Face limits single model weight to 50GiB. For unquantized models >= 40B, you can convert PowerInfer GGUF from the original model weights and predictor weights obtained from Hugging Face.
-
-| Base Model            | Original Model                                                                            | Predictor                                                                                                       |
-| --------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| LLaMA(ReLU)-2-7B      | [SparseLLM/ReluLLaMA-7B](https://huggingface.co/SparseLLM/ReluLLaMA-7B)                   | [PowerInfer/ReluLLaMA-7B-Predictor](https://huggingface.co/PowerInfer/ReluLLaMA-7B-Predictor)                   |
-| LLaMA(ReLU)-2-13B     | [SparseLLM/ReluLLaMA-13B](https://huggingface.co/SparseLLM/ReluLLaMA-13B)                 | [PowerInfer/ReluLLaMA-13B-Predictor](https://huggingface.co/PowerInfer/ReluLLaMA-13B-Predictor)                 |
-| Falcon(ReLU)-40B      | [SparseLLM/ReluFalcon-40B](https://huggingface.co/SparseLLM/ReluFalcon-40B)               | [PowerInfer/ReluFalcon-40B-Predictor](https://huggingface.co/PowerInfer/ReluFalcon-40B-Predictor)               |
-| LLaMA(ReLU)-2-70B     | [SparseLLM/ReluLLaMA-70B](https://huggingface.co/SparseLLM/ReluLLaMA-70B)                 | [PowerInfer/ReluLLaMA-70B-Predictor](https://huggingface.co/PowerInfer/ReluLLaMA-70B-Predictor)                 |
-| ProSparse-LLaMA-2-7B  | [SparseLLM/ProSparse-LLaMA-2-7B](https://huggingface.co/SparseLLM/prosparse-llama-2-7b)   | [PowerInfer/ProSparse-LLaMA-2-7B-Predictor](https://huggingface.co/PowerInfer/prosparse-llama-2-7b-predictor)   |
-| ProSparse-LLaMA-2-13B | [SparseLLM/ProSparse-LLaMA-2-13B](https://huggingface.co/SparseLLM/prosparse-llama-2-13b) | [PowerInfer/ProSparse-LLaMA-2-13B-Predictor](https://huggingface.co/PowerInfer/prosparse-llama-2-13b-predictor) |
-| Bamboo-base-7B 🌟      | [PowerInfer/Bamboo-base-v0.1](https://huggingface.co/PowerInfer/Bamboo-base-v0_1)         | [PowerInfer/Bamboo-base-v0.1-predictor](https://huggingface.co/PowerInfer/Bamboo-base-v0.1-predictor)           |
-| Bamboo-DPO-7B 🌟       | [PowerInfer/Bamboo-DPO-v0.1](https://huggingface.co/PowerInfer/Bamboo-DPO-v0_1)           | [PowerInfer/Bamboo-DPO-v0.1-predictor](https://huggingface.co/PowerInfer/Bamboo-DPO-v0.1-predictor)             |
-
-You can use the following command to convert the original model weights and predictor weights to PowerInfer GGUF:
-```bash
-# make sure that you have done `pip install -r requirements.txt`
-python convert.py --outfile /PATH/TO/POWERINFER/GGUF/REPO/MODELNAME.powerinfer.gguf /PATH/TO/ORIGINAL/MODEL /PATH/TO/PREDICTOR
-# python convert.py --outfile ./ReluLLaMA-70B-PowerInfer-GGUF/llama-70b-relu.powerinfer.gguf ./SparseLLM/ReluLLaMA-70B ./PowerInfer/ReluLLaMA-70B-Predictor
-```
-For the same reason, we suggest keeping the same directory structure as PowerInfer GGUF repos after conversion.
-
-<details>
-
-<summary>Convert Original models into dense GGUF models(compatible with llama.cpp)</summary>
+### 2. Build and install rkllm_enhanced
 
 ```bash
-python convert-dense.py --outfile /PATH/TO/DENSE/GGUF/REPO/MODELNAME.gguf /PATH/TO/ORIGINAL/MODEL
-# python convert-dense.py --outfile ./Bamboo-DPO-v0.1-gguf/bamboo-7b-dpo-v0.1.gguf --outtype f16 ./Bamboo-DPO-v0.1
+# On Orange Pi 5:
+g++ -O2 -o rkllm_enhanced rkllm_enhanced.cpp \
+    -I/usr/local/include -L/usr/local/lib \
+    -lrkllmrt -Wl,-rpath,/usr/local/lib
+
+sudo cp rkllm_enhanced /usr/local/bin/rkllm_enhanced
+sudo chmod +x /usr/local/bin/rkllm_enhanced
 ```
 
-Please note that the generated dense GGUF models might not work properly with llama.cpp, as we have altered activation functions (for ReluLLaMA and Prosparse models), or the model architecture (for Bamboo models). The dense GGUF models generated by convert-dense.py can be used for PowerInfer in dense inference mode, but might not work properly with llama.cpp.
-
-</details>
-
-## Inference
-
-For CPU-only and CPU-GPU hybrid inference with all available VRAM, you can use the following instructions to run PowerInfer:
-```bash
-./build/bin/main -m /PATH/TO/MODEL -n $output_token_count -t $thread_num -p $prompt
-# e.g.: ./build/bin/main -m ./ReluFalcon-40B-PowerInfer-GGUF/falcon-40b-relu.q4.powerinfer.gguf -n 128 -t 8 -p "Once upon a time"
-# For Windows: .\build\bin\Release\main.exe -m .\ReluFalcon-40B-PowerInfer-GGUF\falcon-40b-relu.q4.powerinfer.gguf -n 128 -t 8 -p "Once upon a time"
-```
-
-If you want to limit the VRAM usage of GPU:
-```bash
-./build/bin/main -m /PATH/TO/MODEL -n $output_token_count -t $thread_num -p $prompt --vram-budget $vram_gb
-# e.g.: ./build/bin/main -m ./ReluLLaMA-7B-PowerInfer-GGUF/llama-7b-relu.powerinfer.gguf -n 128 -t 8 -p "Once upon a time" --vram-budget 8
-# For Windows: .\build\bin\Release\main.exe -m .\ReluLLaMA-7B-PowerInfer-GGUF\llama-7b-relu.powerinfer.gguf -n 128 -t 8 -p "Once upon a time" --vram-budget 8
-```
-Under CPU-GPU hybrid inference, PowerInfer will automatically offload all dense activation blocks to GPU, then split FFN and offload to GPU if possible.
-
-<details>
-<summary>Dense inference mode (limited support)</summary>
-
-If you want to run PowerInfer to infer with the dense variants of the PowerInfer model family, you can use similarly as llama.cpp does:
+### 3. Deploy the API server
 
 ```bash
-./build/bin/main -m /PATH/TO/DENSE/MODEL -n $output_token_count -t $thread_num -p $prompt -ngl $num_gpu_layers
-# e.g.: ./build/bin/main -m ./Bamboo-base-v0.1-gguf/bamboo-7b-v0.1.gguf -n 128 -t 8 -p "Once upon a time" -ngl 12
+sudo cp server_patched.py /home/ubuntu/rkllm_api/server.py
 ```
 
-So is the case for other `examples/` like `server` and `batched_generation`. Please note that the dense inference mode is not a "compatible mode" for all models. We have altered activation functions (for ReluLLaMA and Prosparse models) in this mode to match with our model family. 
+### 4. Configure and start the service
 
-</details>
-
-## Serving, Perplexity Evaluation, and more applications
-
-PowerInfer supports serving and batched generation with the same instructions as llama.cpp. Generally, you can use the same command as llama.cpp, except for `-ngl` argument which has been replaced by `--vram-budget` for PowerInfer. Please refer to the detailed instructions in each `examples/` directory. For example:
-
-- [Serving](./examples/server/README.md)
-- [Perplexity Evaluation](./examples/perplexity/README.md)
-- [Batched Generation](./examples/batched/README.md)
-
-## Quantization
-
-PowerInfer has optimized quantization support for INT4(`Q4_0`) models. You can use the following instructions to quantize PowerInfer GGUF model:
 ```bash
-./build/bin/quantize /PATH/TO/MODEL /PATH/TO/OUTPUT/QUANTIZED/MODEL Q4_0
-# e.g.: ./build/bin/quantize ./ReluFalcon-40B-PowerInfer-GGUF/falcon-40b-relu.powerinfer.gguf ./ReluFalcon-40B-PowerInfer-GGUF/falcon-40b-relu.q4.powerinfer.gguf Q4_0
-# For Windows: .\build\bin\Release\quantize.exe .\ReluFalcon-40B-PowerInfer-GGUF\falcon-40b-relu.powerinfer.gguf .\ReluFalcon-40B-PowerInfer-GGUF\falcon-40b-relu.q4.powerinfer.gguf Q4_0
-```
-Then you can use the quantized model for inference with PowerInfer with the same instructions as above.
+sudo tee /etc/systemd/system/rkllm-api.service > /dev/null << 'EOF'
+[Unit]
+Description=RKLLM API Server
+After=network.target
 
-## More Documentation
-- [Performance troubleshooting](./docs/token_generation_performance_tips.md)
+[Service]
+User=ubuntu
+Environment="RKLLM_BIN=/usr/local/bin/rkllm_enhanced"
+Environment="RKLLM_MODEL_PATH=/srv/nvme-share/models/Qwen3-4B-w8a8-hybrid.rkllm"
+Environment="RKLLM_MODEL_NAME=qwen3:4b"
+ExecStart=/usr/bin/python3 /home/ubuntu/rkllm_api/server.py
+Restart=on-failure
 
-## Evaluation
+[Install]
+WantedBy=multi-user.target
+EOF
 
-We evaluated PowerInfer vs. llama.cpp on a single RTX 4090(24G) with a series of FP16 ReLU models under inputs of length 64, and the results are shown below. PowerInfer achieves up to 11x speedup on Falcon 40B and up to 3x speedup on Llama 2 70B.
-
-![github-eval-4090](https://github.com/SJTU-IPADS/PowerInfer/assets/34213478/d700fa6c-77ba-462f-a2fc-3fd21c898f33)
-<sub>The X axis indicates the output length, and the Y axis represents the speedup compared with llama.cpp. The number above each bar indicates the end-to-end generation speed (total prompting + generation time / total tokens generated, in tokens/s).</sub>
-
-We also evaluated PowerInfer on a single RTX 2080Ti(11G) with INT4 ReLU models under inputs of length 8, and the results are illustrated in the same way as above. PowerInfer achieves up to 8x speedup on Falcon 40B and up to 3x speedup on Llama 2 70B.
-
-![github-eval-2080ti-q4](https://github.com/SJTU-IPADS/PowerInfer/assets/34213478/0fc1bfc4-aafc-4e82-a865-bec0143aff1a)
-
-Please refer to our [paper](https://ipads.se.sjtu.edu.cn/_media/publications/powerinfer-20231219.pdf) for more evaluation details.
-
-## FAQs
-1. What if I encountered `CUDA_ERROR_OUT_OF_MEMORY`?
-   - You can try to run with `--reset-gpu-index` argument to rebuild the GPU index for this model to avoid any stale cache.
-   - Due to our current implementation, model offloading might not be as accurate as expected. You can try with `--vram-budget` with a slightly lower value or `--disable-gpu-index` to disable FFN offloading.
-
-2. Does PowerInfer support mistral, original llama, Qwen, ...?
-   - Now we only support models with ReLU/ReGLU/Squared ReLU activation function. So we do not support these models now. It's worth mentioning that a [paper](https://arxiv.org/pdf/2310.04564.pdf) has demonstrated that using the ReLU/ReGLU activation function has a negligible impact on convergence and performance.
-
-3. Why is there a noticeable downgrade in the performance metrics of our current ReLU model, particularly the 70B model?
-   - In contrast to the typical requirement of around 2T tokens for LLM training, our model's fine-tuning was conducted with only 5B tokens. This insufficient retraining has resulted in the model's inability to regain its original performance. We are actively working on updating to a more capable model, so please stay tuned.
-
-4. What if...
-   - Issues are welcomed! Please feel free to open an issue and attach your running environment and running parameters. We will try our best to help you.
-
-## TODOs
-We will release the code and data in the following order, please stay tuned!
-
-- [x] Release core code of PowerInfer, supporting Llama-2, Falcon-40B.
-- [x] Support ~~Mistral-7B~~ (Bamboo-7B)
-- [x] Support Windows
-- [ ] Support text-generation-webui
-- [x] Release perplexity evaluation code
-- [ ] Support Metal for Mac
-- [ ] Release code for OPT models
-- [ ] Release predictor training code
-- [x] Support online split for FFN network
-- [ ] Support Multi-GPU
-
-
-## Paper and Citation
-More technical details can be found in our [paper](https://ipads.se.sjtu.edu.cn/_media/publications/powerinfer-20231219.pdf).
-
-If you find PowerInfer useful or relevant to your project and research, please kindly cite our paper:
-
-```bibtex
-@misc{song2023powerinfer,
-      title={PowerInfer: Fast Large Language Model Serving with a Consumer-grade GPU},
-      author={Yixin Song and Zeyu Mi and Haotong Xie and Haibo Chen},
-      year={2023},
-      eprint={2312.12456},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
-}
+sudo systemctl daemon-reload
+sudo systemctl enable --now rkllm-api
 ```
 
-## Acknowledgement
-We are thankful for the easily modifiable operator library [ggml](https://github.com/ggerganov/ggml) and execution runtime provided by [llama.cpp](https://github.com/ggerganov/llama.cpp). We also extend our gratitude to [THUNLP](https://nlp.csai.tsinghua.edu.cn/) for their support of ReLU-based sparse models. We also appreciate the research of [Deja Vu](https://proceedings.mlr.press/v202/liu23am.html), which inspires PowerInfer.
+### 5. Test the API
+
+```bash
+# Basic inference
+curl http://localhost:8080/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3:4b","prompt":"What is the capital of France?","stream":false}'
+
+# Chain-of-thought reasoning
+curl http://localhost:8080/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3:4b","prompt":"If a train travels 120km in 2 hours, what is its speed?","stream":false}'
+```
+
+---
+
+## Architecture
+
+```
+Client (HTTP)
+     │
+     ▼
+server_patched.py  ←  port 8080 (Ollama-compatible)
+     │  PTY
+     ▼
+rkllm_enhanced     ←  n_keep=4, embed_flash=1, cpus_mask=0xF0
+     │  RKLLM SDK
+     ▼
+librkllmrt.so
+   ├── RKNPU2 (50% of layers)   ← hybrid_rate=0.5
+   └── A76 CPU4-7 (50% layers)  ← enabled_cpus_mask=0xF0
+         │
+         ▼
+   Qwen3-4B-w8a8-hybrid.rkllm  (NVMe)
+```
+
+---
+
+## Components
+
+### `rkllm_enhanced.cpp`
+
+Drop-in replacement for `/usr/bin/rkllm` that directly uses the RKLLM C SDK with all advanced parameters exposed:
+
+- **`n_keep=4`** — attention-sink sliding window KV cache. Keeps the first 4 tokens (attention sinks) permanently, evicts older tokens when cache fills. RAM usage stays constant regardless of conversation length.
+- **`embed_flash=1`** — stores the embedding table on NVMe instead of DRAM, saving ~200 MB RAM.
+- **`enabled_cpus_mask=0xF0`** — pins all inference threads to CPU4-7 (Cortex-A76 big cores at 2.4 GHz), avoiding the slower A55 little cores.
+- **`rkllm_set_chat_template`** — overrides the chat template after init to use the U+FF5C delimiter format compatible with the API server.
+- SIGINT handling via `rkllm_abort()` for clean mid-generation stops.
+
+### `server_patched.py`
+
+Patched version of the RKLLM API server with six improvements over the original:
+
+1. **STRIP_RE** — strips `<|im_end|>` and `<|im_start|>` ChatML tokens from streamed output
+2. **RESPONSE_MARKERS** — adds `</think>` as a thinking-end marker (Qwen3-4B thinking mode)
+3. **END_MARKERS** — adds `<|im_end|>` as a response-end marker
+4. **wait_nl phase** — correctly routes `<think>` first-line to `skip_think` phase instead of `collect`
+5. **Zombie recovery** — `OSError` in reader thread sets `needs_restart=True` and unblocks the idle event, allowing automatic recovery when `rkllm_enhanced` crashes
+6. **`RKLLM_BIN` env var** — binary path configurable via environment without editing source
+
+### `convert/export_qwen3.py`
+
+Model conversion pipeline for building `.rkllm` files from HuggingFace weights on an x86_64 Linux machine (or WSL2 on Windows):
+
+```python
+# Produces two variants:
+export(hybrid_rate=0.0, suffix="npu")     # all-NPU, fastest
+export(hybrid_rate=0.5, suffix="hybrid")  # 50% CPU A76 + 50% NPU
+```
+
+**Requirements:** `rkllm-toolkit 1.2.1b1`, Python 3.12, torch 2.3.0 (CPU), x86_64 Linux or WSL2.
+
+> **Note:** `rkllm-toolkit 1.2.1b1` does not support W4A16 for RK3588. Only W8A8 is available for this platform in this toolkit version.
+
+---
+
+## Models
+
+Pre-built W8A8 models available on HuggingFace:
+
+**[kamyarkazremi/Qwen3-4B-W8A8-RK3588](https://huggingface.co/kamyarkazremi/Qwen3-4B-W8A8-RK3588)**
+
+| File | Size | Use case |
+|------|------|----------|
+| `Qwen3-4B-w8a8-hybrid.rkllm` | 4.54 GB | Recommended — CPU+NPU split reduces NPU memory pressure |
+| `Qwen3-4B-w8a8-npu.rkllm` | 4.51 GB | All-NPU — higher throughput if NPU memory is not a constraint |
+
+Both models support up to 4096 token context with the sliding-window KV cache providing constant memory regardless of conversation length.
+
+---
+
+## Building Models (Re-export)
+
+If you want to rebuild the models (e.g., with different `max_context` or `hybrid_rate`):
+
+### Requirements (x86_64 Linux or WSL2)
+
+```bash
+python3 -m venv /opt/rkllm-env
+/opt/rkllm-env/bin/pip install torch==2.3.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
+/opt/rkllm-env/bin/pip install torchvision==0.18.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
+/opt/rkllm-env/bin/pip install rkllm_toolkit-1.2.1b1-cp312-cp312-linux_x86_64.whl
+/opt/rkllm-env/bin/pip install setuptools==69.5.1 'pyarrow<15.0.0'
+```
+
+### Run export
+
+```bash
+/opt/rkllm-env/bin/python3 convert/export_qwen3.py
+# Output: /output/Qwen3-4B-w8a8-{npu,hybrid}.rkllm
+```
+
+Export time: ~22 minutes per model (hybrid takes ~3.5 hours due to per-block sensitivity analysis).
+
+---
+
+## Project Status
+
+| Task | Status |
+|------|--------|
+| rkllm_enhanced binary | ✅ Complete |
+| server_patched.py | ✅ Complete |
+| Model export pipeline | ✅ Complete |
+| W8A8 models built and uploaded | ✅ Complete |
+| Service deployed on Orange Pi 5 | ✅ Complete |
+| Chain-of-thought validation | 🔄 Pending (Pi offline during export) |
+| W4A16 quantization | ❌ Not supported by toolkit 1.2.1b1 for RK3588 |
+
+See [HANDOFF.md](HANDOFF.md) and [PROJECT_HISTORY.md](PROJECT_HISTORY.md) for full context.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Original PowerInfer project: [SJTU-IPADS/PowerInfer](https://github.com/SJTU-IPADS/PowerInfer)
